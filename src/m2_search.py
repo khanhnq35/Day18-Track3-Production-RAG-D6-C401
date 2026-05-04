@@ -23,9 +23,9 @@ def segment_vietnamese(text: str) -> str:
     """
     try:
         from underthesea import word_tokenize
-        return word_tokenize(text, format="text")
+        return word_tokenize(text, format="text").lower()
     except Exception:
-        return text  # fallback nếu underthesea chưa cài
+        return text.lower()  # fallback nếu underthesea chưa cài
 
 
 class BM25Search:
@@ -51,6 +51,9 @@ class BM25Search:
             return []
 
         tokenized_query = segment_vietnamese(query).split()
+        # Thêm fallback: nối các từ bằng '_' đề phòng underthesea không gom từ cho câu ngắn
+        tokenized_query.append(query.strip().replace(" ", "_").lower())
+        
         scores = self.bm25.get_scores(tokenized_query)
         top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
 
@@ -73,14 +76,12 @@ class DenseSearch:
         self._encoder = None
         self._collection: str = COLLECTION_NAME
 
-    def _get_encoder(self):
-        if self._encoder is None:
-            from sentence_transformers import SentenceTransformer
-            self._encoder = SentenceTransformer(EMBEDDING_MODEL)
-        return self._encoder
+    def _get_embeddings(self, texts: list[str]) -> list[list[float]]:
+        from src.utils import get_embeddings
+        return get_embeddings(texts)
 
     def index(self, chunks: list[dict], collection: str = COLLECTION_NAME) -> None:
-        """Encode chunks with bge-m3 and upload to Qdrant."""
+        """Encode chunks and upload to Qdrant."""
         from qdrant_client.models import Distance, VectorParams, PointStruct
 
         self._collection = collection
@@ -90,12 +91,12 @@ class DenseSearch:
         )
 
         texts = [c["text"] for c in chunks]
-        vectors = self._get_encoder().encode(texts, show_progress_bar=True)
+        vectors = self._get_embeddings(texts)
 
         points = [
             PointStruct(
                 id=i,
-                vector=v.tolist(),
+                vector=v,
                 payload={**c.get("metadata", {}), "text": c["text"]},
             )
             for i, (c, v) in enumerate(zip(chunks, vectors))
@@ -105,7 +106,7 @@ class DenseSearch:
     def search(self, query: str, top_k: int = DENSE_TOP_K, collection: str = COLLECTION_NAME) -> list[SearchResult]:
         """Search using dense vectors."""
         try:
-            query_vector = self._get_encoder().encode(query).tolist()
+            query_vector = self._get_embeddings([query])[0]
             hits = self.client.search(
                 collection_name=collection,
                 query_vector=query_vector,

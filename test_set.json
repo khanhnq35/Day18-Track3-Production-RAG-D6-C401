@@ -1,3 +1,18 @@
 [
-  {"question": "hihi cả nhà tự tạo testset bằng cơm nhé", "ground_truth": "Không kịp tạo luôn"},
+  {
+    "question": "Tên người nộp thuế và mã số thuế trong tờ khai thuế GTGT Mẫu số 01/GTGT là gì?",
+    "ground_truth": "Tên người nộp thuế là CÔNG TY CỔ PHẦN DHA SURFACES và mã số thuế là 0106769437."
+  },
+  {
+    "question": "Thuế giá trị gia tăng phải nộp của hoạt động sản xuất kinh doanh trong kỳ 4 năm 2024 là bao nhiêu?",
+    "ground_truth": "Thuế giá trị gia tăng phải nộp của hoạt động sản xuất kinh doanh trong kỳ là 52.133.830 đồng."
+  },
+  {
+    "question": "Nghị định 13/2023/NĐ-CP áp dụng đối với những đối tượng nào?",
+    "ground_truth": "Nghị định áp dụng đối với: Cơ quan, tổ chức, cá nhân Việt Nam; Cơ quan, tổ chức, cá nhân nước ngoài tại Việt Nam; Cơ quan, tổ chức, cá nhân Việt Nam hoạt động tại nước ngoài; Cơ quan, tổ chức, cá nhân nước ngoài trực tiếp tham gia hoặc có liên quan đến hoạt động xử lý dữ liệu cá nhân tại Việt Nam."
+  },
+  {
+    "question": "Theo Nghị định bảo vệ dữ liệu cá nhân, dữ liệu cá nhân cơ bản bao gồm những gì liên quan đến giấy tờ tùy thân?",
+    "ground_truth": "Dữ liệu cá nhân cơ bản liên quan đến giấy tờ tùy thân bao gồm số chứng minh nhân dân, số định danh cá nhân, số hộ chiếu, số giấy phép lái xe, số mã số thuế cá nhân, số bảo hiểm xã hội, số thẻ bảo hiểm y tế."
+  }
 ]
