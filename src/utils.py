@@ -6,7 +6,7 @@ from config import (LLM_PROVIDER, DEFAULT_LLM, FALLBACK_LLM, GCP_PROJECT_ID, GCP
                     EMBEDDING_PROVIDER, GCP_EMBEDDING_MODEL, 
                     EMBEDDING_DIM, EMBEDDING_MODEL)
 
-def call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.0) -> str:
+def call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.0, model_name: str = None) -> str:
     """
     Hàm gọi LLM chung hỗ trợ cả GCP Vertex AI và OpenAI.
     
@@ -36,9 +36,13 @@ def call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.0) -> 
                 response = model.generate_content(full_prompt)
                 return response.text
 
+            target_model = model_name or DEFAULT_LLM
             try:
-                return generate_gemini(DEFAULT_LLM)
+                return generate_gemini(target_model)
             except Exception as e:
+                if model_name: # Nếu đã chỉ định model mà lỗi thì throw luôn hoặc handle riêng
+                    print(f"Gemini {model_name} Error: {e}")
+                    return ""
                 print(f"Gemini Default Error: {e}, falling back to {FALLBACK_LLM}")
                 return generate_gemini(FALLBACK_LLM)
         else:
@@ -78,10 +82,11 @@ def get_embeddings(texts: list[str], task: str = None) -> list[list[float]]:
             
             model = TextEmbeddingModel.from_pretrained(GCP_EMBEDDING_MODEL)
             
-            # Giới hạn của Vertex AI thường là 250 instances mỗi request
+            # Giới hạn của Vertex AI là 250 instances, nhưng tổng token không được quá 20,000.
+            # Dùng batch 50 để an toàn hơn.
             all_embeddings = []
-            for i in range(0, len(texts), 250):
-                batch = texts[i:i+250]
+            for i in range(0, len(texts), 50):
+                batch = texts[i:i+50]
                 results = model.get_embeddings(batch)
                 all_embeddings.extend([r.values for r in results])
             return all_embeddings

@@ -45,10 +45,24 @@ def chunk_basic(text: str, chunk_size: int = 500, metadata: dict | None = None) 
     chunks = []
     current = ""
     for i, para in enumerate(paragraphs):
+        # Nếu paragraph đơn lẻ quá dài, cắt nhỏ nó ra
+        if len(para) > chunk_size:
+            # Nếu đang có nội dung trong current, đẩy vào chunks trước
+            if current:
+                chunks.append(Chunk(text=current.strip(), metadata={**metadata, "chunk_index": len(chunks)}))
+                current = ""
+            # Cắt nhỏ paragraph này
+            for start in range(0, len(para), chunk_size):
+                sub_para = para[start:start + chunk_size].strip()
+                if sub_para:
+                    chunks.append(Chunk(text=sub_para, metadata={**metadata, "chunk_index": len(chunks)}))
+            continue
+
         if len(current) + len(para) > chunk_size and current:
             chunks.append(Chunk(text=current.strip(), metadata={**metadata, "chunk_index": len(chunks)}))
             current = ""
         current += para + "\n\n"
+    
     if current.strip():
         chunks.append(Chunk(text=current.strip(), metadata={**metadata, "chunk_index": len(chunks)}))
     return chunks

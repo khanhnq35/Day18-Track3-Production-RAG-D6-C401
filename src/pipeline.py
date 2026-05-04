@@ -22,31 +22,54 @@ def build_pipeline():
     # Step 1: Load & Chunk (M1)
     print("\n[1/3] Chunking documents...")
     docs = load_documents()
-    all_chunks = []
-    parent_lookup = {}
+    all_parents = []
+    all_children = []
+    
     for doc in docs:
         parents, children = chunk_hierarchical(doc["text"], metadata=doc["metadata"])
-        for parent in parents:
-            parent_lookup[parent.parent_id] = parent.text
-        for child in children:
-            all_chunks.append({"text": child.text, "metadata": {**child.metadata, "parent_id": child.parent_id}})
-    print(f"  {len(all_chunks)} chunks from {len(docs)} documents")
-    print(f"  {len(parent_lookup)} parent chunks for hierarchical context")
+        all_parents.extend(parents)
+        all_children.extend(children)
+    
+    print(f"  {len(all_children)} child chunks from {len(docs)} documents")
+    print(f"  {len(all_parents)} parent chunks for context")
 
-    # Step 2: Enrichment (M5)
-    print("\n[2/4] Enriching chunks (M5)...")
-    enriched = enrich_chunks(all_chunks, methods=["contextual", "hyqa", "metadata"])
-    if enriched:
-        # Use enriched text for indexing
-        all_chunks = [{"text": e.enriched_text, "metadata": e.auto_metadata} for e in enriched]
-        print(f"  Enriched {len(enriched)} chunks")
-    else:
-        print("  ⚠️  M5 not implemented — using raw chunks (fallback)")
+    # Step 2: Optimized Enrichment (M5)
+    # CHỈ làm giàu Parent chunks để tiết kiệm call LLM (Giảm từ ~400 xuống ~35 calls)
+    print(f"\n[2/4] Enriching {len(all_parents)} PARENT chunks only (Optimized)...")
+    parent_dicts = [{"text": p.text, "metadata": p.metadata} for p in all_parents]
+    enriched_parents = enrich_chunks(parent_dicts)
+    
+    # Tạo lookup table cho parent (chứa text đã được làm giàu)
+    parent_lookup = {}
+    parent_context_map = {} # parent_id -> context_prepend
+    
+    for e in enriched_parents:
+        pid = e.auto_metadata.get("parent_id")
+        parent_lookup[pid] = e.enriched_text
+        # Trích xuất context từ enriched_text (phần trong ngoặc [])
+        import re
+        match = re.search(r"\[Ngữ cảnh: (.*?)\]", e.enriched_text)
+        if match:
+            parent_context_map[pid] = match.group(1)
+
+    # Cập nhật child chunks: thừa hưởng context từ parent
+    final_chunks = []
+    for child in all_children:
+        pid = child.parent_id
+        text = child.text
+        if pid in parent_context_map:
+            text = f"[Ngữ cảnh: {parent_context_map[pid]}]\n\n{text}"
+        
+        final_chunks.append({
+            "text": text,
+            "metadata": {**child.metadata, "parent_id": pid}
+        })
+    print(f"  Enrichment done (Selective + Combined). Processed {len(all_parents)} LLM calls.")
 
     # Step 3: Index (M2)
     print("\n[3/4] Indexing (BM25 + Dense)...")
     search = HybridSearch()
-    search.index(all_chunks)
+    search.index(final_chunks)
 
     # Step 4: Reranker (M3)
     print("\n[4/4] Loading reranker...")
@@ -76,6 +99,28 @@ def run_query(query: str, search: HybridSearch, reranker: CrossEncoderReranker,
             contexts.append(result.text)
 
     # TODO (nhóm): Replace with LLM generation for better scores
+    # --- LOGGING DIAGNOSTICS ---
+    log_dir = "logs"
+    os.makedirs(log_dir, exist_ok=True)
+    trace_file = os.path.join(log_dir, "pipeline_trace.log")
+    
+    with open(trace_file, "a", encoding="utf-8") as f:
+        f.write(f"\n{'='*50}\n")
+        f.write(f"QUERY: {query}\n")
+        f.write(f"{'-'*50}\n")
+        f.write(f"STEP 1: HYBRID SEARCH (TOP {len(results)})\n")
+        for i, r in enumerate(results[:5]):
+            f.write(f"  [{i}] Score: {r.score:.4f} | Method: {r.method} | Source: {r.metadata.get('source')}\n")
+            f.write(f"      Text: {r.text[:200]}...\n")
+        
+        f.write(f"\nSTEP 2: RERANKING (TOP {len(source_results)})\n")
+        for i, r in enumerate(source_results):
+            # Lấy điểm score (của SearchResult) hoặc rerank_score (của RerankResult)
+            s = getattr(r, "rerank_score", getattr(r, "score", 0.0))
+            f.write(f"  [{i}] Score: {s:.4f} | Source: {r.metadata.get('source')}\n")
+            f.write(f"      Text: {r.text[:200]}...\n")
+
+    # --- LLM Generation ---
     from src.utils import call_llm
     
     context_str = "\n\n".join(contexts)
@@ -93,23 +138,38 @@ def run_query(query: str, search: HybridSearch, reranker: CrossEncoderReranker,
     
     if not answer:
         answer = contexts[0] if contexts else "Không tìm thấy thông tin trong tài liệu."
+
+    with open(trace_file, "a", encoding="utf-8") as f:
+        f.write(f"\nSTEP 3: GENERATED ANSWER\n")
+        f.write(f"Answer: {answer}\n")
+        f.write(f"{'='*50}\n")
+
     return answer, contexts
 
 
 def evaluate_pipeline(search: HybridSearch, reranker: CrossEncoderReranker,
                       parent_lookup: dict[str, str]):
     """Run evaluation on test set."""
-    print("\n[Eval] Running queries...")
+    print("\n[Eval] Running queries (Multi-threaded)...")
     test_set = load_test_set()
     questions, answers, all_contexts, ground_truths = [], [], [], []
 
-    for i, item in enumerate(test_set):
-        answer, contexts = run_query(item["question"], search, reranker, parent_lookup)
-        questions.append(item["question"])
-        answers.append(answer)
-        all_contexts.append(contexts)
-        ground_truths.append(item["ground_truth"])
-        print(f"  [{i+1}/{len(test_set)}] {item['question'][:50]}...")
+    from concurrent.futures import ThreadPoolExecutor
+
+    def process_item(idx_item):
+        i, item = idx_item
+        ans, ctx = run_query(item["question"], search, reranker, parent_lookup)
+        print(f"  [{i+1}/{len(test_set)}] Xử lý xong: {item['question'][:50]}...")
+        return item["question"], ans, ctx, item["ground_truth"]
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        results_parallel = list(executor.map(process_item, enumerate(test_set)))
+
+    for q, a, c, gt in results_parallel:
+        questions.append(q)
+        answers.append(a)
+        all_contexts.append(c)
+        ground_truths.append(gt)
 
     print("\n[Eval] Running RAGAS...")
     results = evaluate_ragas(questions, answers, all_contexts, ground_truths)

@@ -25,6 +25,61 @@ def load_test_set(path: str = TEST_SET_PATH) -> list[dict]:
         return json.load(f)
 
 
+# --- Ragas Vertex AI Wrapper ---
+from ragas.llms import BaseRagasLLM
+from langchain_core.outputs import LLMResult, Generation
+from ragas.embeddings import BaseRagasEmbeddings
+from src.utils import call_llm, get_embeddings
+from config import DEFAULT_LLM, FALLBACK_LLM, JUDGE_LLM
+
+class VertexRagasLLM(BaseRagasLLM):
+    def generate_text(self, prompt, n=1, temperature=1e-8, stop=None, callbacks=None):
+        # prompt is a PromptValue or string
+        prompt_str = prompt.to_string() if hasattr(prompt, "to_string") else str(prompt)
+        res = call_llm("Bạn là quan tòa chấm điểm RAG.", prompt_str, temperature=temperature, model_name=JUDGE_LLM)
+        
+        # Làm sạch JSON bằng regex (mạnh mẽ hơn)
+        import re
+        match = re.search(r"(\{.*\})", res, re.DOTALL)
+        clean_res = match.group(1) if match else res.strip()
+        
+        # DEBUG LOG
+        log_dir = "logs"
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, "ragas_debug.txt"), "a", encoding="utf-8") as f:
+            f.write(f"\n--- PROMPT ---\n{prompt_str}\n")
+            f.write(f"--- RESPONSE ---\n{res}\n")
+            f.write(f"--- CLEANED ---\n{clean_res}\n")
+            f.write("-" * 50 + "\n")
+            
+        return LLMResult(generations=[[Generation(text=clean_res) for _ in range(n)]])
+    
+    async def agenerate_text(self, prompt, n=1, temperature=1e-8, stop=None, callbacks=None):
+        return self.generate_text(prompt, n, temperature, stop, callbacks)
+    
+    def is_finished(self, response: LLMResult) -> bool:
+        return True
+
+class VertexRagasEmbeddings(BaseRagasEmbeddings):
+    def embed_texts(self, texts):
+        return get_embeddings(texts)
+    
+    def embed_documents(self, texts):
+        return self.embed_texts(texts)
+    
+    def embed_query(self, text):
+        return self.embed_texts([text])[0]
+        
+    async def aembed_texts(self, texts):
+        return self.embed_texts(texts)
+
+    async def aembed_documents(self, texts):
+        return self.embed_texts(texts)
+        
+    async def aembed_query(self, text):
+        return self.embed_texts([text])[0]
+
+
 def evaluate_ragas(questions: list[str], answers: list[str],
                    contexts: list[list[str]], ground_truths: list[str]) -> dict:
     """Run RAGAS evaluation."""
@@ -44,7 +99,15 @@ def evaluate_ragas(questions: list[str], answers: list[str],
 
     # 2. Run evaluation
     metrics = [faithfulness, answer_relevancy, context_precision, context_recall]
-    result = evaluate(dataset, metrics=metrics)
+    
+    # Khởi tạo wrappers
+    ragas_llm = VertexRagasLLM()
+    ragas_emb = VertexRagasEmbeddings()
+
+    from ragas.run_config import RunConfig
+    run_config = RunConfig(max_workers=4, timeout=120)
+
+    result = evaluate(dataset, metrics=metrics, llm=ragas_llm, embeddings=ragas_emb, run_config=run_config, raise_exceptions=False)
 
     # 3. Convert to EvalResult list
     df = result.to_pandas()

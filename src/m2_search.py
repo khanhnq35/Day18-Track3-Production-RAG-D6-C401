@@ -107,11 +107,11 @@ class DenseSearch:
         """Search using dense vectors."""
         try:
             query_vector = self._get_embeddings([query])[0]
-            hits = self.client.search(
+            hits = self.client.query_points(
                 collection_name=collection,
-                query_vector=query_vector,
+                query=query_vector,
                 limit=top_k,
-            )
+            ).points
             return [
                 SearchResult(
                     text=hit.payload["text"],
@@ -121,7 +121,8 @@ class DenseSearch:
                 )
                 for hit in hits
             ]
-        except Exception:
+        except Exception as e:
+            print(f"DenseSearch Error for collection '{collection}': {e}")
             return []
 
 
