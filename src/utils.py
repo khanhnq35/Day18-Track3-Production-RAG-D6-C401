@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (LLM_PROVIDER, DEFAULT_LLM, FALLBACK_LLM, GCP_PROJECT_ID, GCP_LOCATION,
-                    EMBEDDING_PROVIDER, GCP_EMBEDDING_ENDPOINT_ID, EMBEDDING_TASK, 
+                    EMBEDDING_PROVIDER, GCP_EMBEDDING_MODEL, 
                     EMBEDDING_DIM, EMBEDDING_MODEL)
 
 def call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.0) -> str:
@@ -59,45 +59,32 @@ def call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.0) -> 
 
 def get_embeddings(texts: list[str], task: str = None) -> list[list[float]]:
     """
-    Lấy embeddings hỗ trợ cả GCP Vertex AI (Jina v3 Endpoint) và Local.
+    Lấy embeddings hỗ trợ cả GCP Vertex AI (Native) và Local.
     
     Args:
         texts: Danh sách chuỗi văn bản cần embed.
-        task: Loại task (retrieval.query hoặc retrieval.passage). Mặc định lấy từ config.
+        task: Không dùng cho native (SDK tự xử lý).
         
     Returns:
         Danh sách các vector (list of lists of floats).
     """
-    task = task or EMBEDDING_TASK
     try:
         if EMBEDDING_PROVIDER == "google":
-            import json
-            from google.cloud import aiplatform
+            import vertexai
+            from vertexai.language_models import TextEmbeddingModel
             
             if GCP_PROJECT_ID:
-                aiplatform.init(project=GCP_PROJECT_ID, location=GCP_LOCATION)
+                vertexai.init(project=GCP_PROJECT_ID, location=GCP_LOCATION)
             
-            endpoint = aiplatform.Endpoint(GCP_EMBEDDING_ENDPOINT_ID)
+            model = TextEmbeddingModel.from_pretrained(GCP_EMBEDDING_MODEL)
             
-            # Payload theo định dạng Jina v3 trên Vertex AI Model Garden
-            payload = {
-                "model": "jina-embeddings-v3",
-                "task": task,
-                "dimensions": EMBEDDING_DIM,
-                "input": texts
-            }
-            
-            response = endpoint.raw_predict(
-                body=json.dumps(payload),
-                headers={"Content-Type": "application/json"},
-            )
-            
-            result = json.loads(response.text)
-            # Trích xuất vector từ response (định dạng Jina v3: {"data": [{"embedding": [...]}, ...]})
-            if "data" in result:
-                return [item["embedding"] for item in result["data"]]
-            else:
-                raise ValueError(f"Unexpected response format: {result}")
+            # Giới hạn của Vertex AI thường là 250 instances mỗi request
+            all_embeddings = []
+            for i in range(0, len(texts), 250):
+                batch = texts[i:i+250]
+                results = model.get_embeddings(batch)
+                all_embeddings.extend([r.values for r in results])
+            return all_embeddings
         else:
             # Chạy local dùng sentence-transformers
             from sentence_transformers import SentenceTransformer

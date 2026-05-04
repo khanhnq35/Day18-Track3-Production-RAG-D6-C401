@@ -14,13 +14,12 @@ JINA_API_KEY = os.getenv("JINA_API_KEY", "")
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")
 GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "google")  # "google" or "openai"
-DEFAULT_LLM = os.getenv("DEFAULT_LLM", "gemini-3.1-pro-preview")
-FALLBACK_LLM = os.getenv("FALLBACK_LLM", "gemini-3-flash-preview")
+DEFAULT_LLM = os.getenv("DEFAULT_LLM", "gemini-2.5-flash")
+FALLBACK_LLM = os.getenv("FALLBACK_LLM", "gemini-2.5-flash-lite")
 
 # --- Embedding Provider ---
 EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "google") # "google" (Vertex AI) or "local"
-GCP_EMBEDDING_ENDPOINT_ID = os.getenv("GCP_EMBEDDING_ENDPOINT_ID", "") # Cần điền Endpoint ID của Jina v3
-EMBEDDING_TASK = os.getenv("EMBEDDING_TASK", "retrieval.passage") # "retrieval.query" hoặc "retrieval.passage"
+GCP_EMBEDDING_MODEL = os.getenv("GCP_EMBEDDING_MODEL", "text-embedding-004") # Model native của Google
 
 # --- Qdrant ---
 QDRANT_HOST = "localhost"
