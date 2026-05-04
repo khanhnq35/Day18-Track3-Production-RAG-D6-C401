@@ -8,6 +8,19 @@ load_dotenv()
 # --- API Keys ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
+JINA_API_KEY = os.getenv("JINA_API_KEY", "")
+
+# --- GCP Vertex AI ---
+GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")
+GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "google")  # "google" or "openai"
+DEFAULT_LLM = os.getenv("DEFAULT_LLM", "gemini-3.1-pro-preview")
+FALLBACK_LLM = os.getenv("FALLBACK_LLM", "gemini-3-flash-preview")
+
+# --- Embedding Provider ---
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "google") # "google" (Vertex AI) or "local"
+GCP_EMBEDDING_ENDPOINT_ID = os.getenv("GCP_EMBEDDING_ENDPOINT_ID", "") # Cần điền Endpoint ID của Jina v3
+EMBEDDING_TASK = os.getenv("EMBEDDING_TASK", "retrieval.passage") # "retrieval.query" hoặc "retrieval.passage"
 
 # --- Qdrant ---
 QDRANT_HOST = "localhost"
@@ -16,8 +29,9 @@ COLLECTION_NAME = "lab18_production"
 NAIVE_COLLECTION = "lab18_naive"
 
 # --- Embedding ---
-EMBEDDING_MODEL = "BAAI/bge-m3"
-EMBEDDING_DIM = 1024
+# Default to Jina v3 as requested
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "jina-ai/jina-embeddings-v3")
+EMBEDDING_DIM = 1024  # jina-v3 supports flexible dims, 1024 is default for many tasks
 
 # --- Chunking ---
 HIERARCHICAL_PARENT_SIZE = 2048

@@ -57,11 +57,9 @@ class DenseSearch:
         self.client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
         self._encoder = None
 
-    def _get_encoder(self):
-        if self._encoder is None:
-            from sentence_transformers import SentenceTransformer
-            self._encoder = SentenceTransformer(EMBEDDING_MODEL)
-        return self._encoder
+    def _get_embeddings(self, texts: list[str]) -> list[list[float]]:
+        from src.utils import get_embeddings
+        return get_embeddings(texts)
 
     def index(self, chunks: list[dict], collection: str = COLLECTION_NAME) -> None:
         """Index chunks into Qdrant."""
@@ -69,15 +67,15 @@ class DenseSearch:
         # 1. from qdrant_client.models import Distance, VectorParams, PointStruct
         # 2. self.client.recreate_collection(collection, VectorParams(size=EMBEDDING_DIM, distance=Distance.COSINE))
         # 3. texts = [c["text"] for c in chunks]
-        # 4. vectors = self._get_encoder().encode(texts, show_progress_bar=True)
-        # 5. points = [PointStruct(id=i, vector=v.tolist(), payload={**c["metadata"], "text": c["text"]}) ...]
+        # 4. vectors = self._get_embeddings(texts)
+        # 5. points = [PointStruct(id=i, vector=v, payload={**c["metadata"], "text": c["text"]}) ...]
         # 6. self.client.upsert(collection, points)
         pass
 
     def search(self, query: str, top_k: int = DENSE_TOP_K, collection: str = COLLECTION_NAME) -> list[SearchResult]:
         """Search using dense vectors."""
         # TODO: Implement dense search
-        # 1. query_vector = self._get_encoder().encode(query).tolist()
+        # 1. query_vector = self._get_embeddings([query])[0]
         # 2. hits = self.client.search(collection, query_vector, limit=top_k)
         # 3. Return [SearchResult(text=hit.payload["text"], score=hit.score, metadata=hit.payload, method="dense")]
         return []

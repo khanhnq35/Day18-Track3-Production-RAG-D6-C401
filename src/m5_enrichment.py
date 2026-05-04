@@ -10,7 +10,7 @@ import os, sys
 from dataclasses import dataclass, field
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config import OPENAI_API_KEY
+from src.utils import call_llm
 
 
 @dataclass

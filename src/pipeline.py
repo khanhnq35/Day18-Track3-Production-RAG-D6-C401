@@ -9,7 +9,8 @@ from src.m2_search import HybridSearch
 from src.m3_rerank import CrossEncoderReranker
 from src.m4_eval import load_test_set, evaluate_ragas, failure_analysis, save_report
 from src.m5_enrichment import enrich_chunks
-from config import RERANK_TOP_K
+from config import (RERANK_TOP_K, LLM_PROVIDER, DEFAULT_LLM, FALLBACK_LLM, 
+                    GCP_PROJECT_ID, GCP_LOCATION)
 
 
 def build_pipeline():
@@ -75,31 +76,22 @@ def run_query(query: str, search: HybridSearch, reranker: CrossEncoderReranker,
             contexts.append(result.text)
 
     # TODO (nhóm): Replace with LLM generation for better scores
-    try:
-        from openai import OpenAI
-        client = OpenAI()
-        context_str = "\n\n".join(contexts)
-        
-        sys_prompt = (
-            "Bạn là trợ lý RAG trả lời câu hỏi tiếng Việt dựa trên tài liệu được cung cấp. "
-            "Chỉ sử dụng thông tin xuất hiện trực tiếp trong phần Context. "
-            "Không sử dụng kiến thức bên ngoài, không suy luận ngoài context, không bịa thêm chi tiết. "
-            "Trả lời trực tiếp, ngắn gọn, đúng trọng tâm câu hỏi. "
-            "Nếu context không đủ thông tin để trả lời chắc chắn, chỉ trả lời đúng câu sau: "
-            "'Không tìm thấy thông tin trong tài liệu.'"
-        )
-        
-        resp = client.chat.completions.create(
-            model="gpt-4o-mini",
-            temperature=0.0,
-            messages=[
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": f"Context:\n{context_str}\n\nCâu hỏi: {query}"},
-            ]
-        )
-        answer = resp.choices[0].message.content
-    except Exception as e:
-        print(f"LLM Error: {e}")
+    from src.utils import call_llm
+    
+    context_str = "\n\n".join(contexts)
+    sys_prompt = (
+        "Bạn là trợ lý RAG trả lời câu hỏi tiếng Việt dựa trên tài liệu được cung cấp. "
+        "Chỉ sử dụng thông tin xuất hiện trực tiếp trong phần Context. "
+        "Không sử dụng kiến thức bên ngoài, không suy luận ngoài context, không bịa thêm chi tiết. "
+        "Trả lời trực tiếp, ngắn gọn, đúng trọng tâm câu hỏi. "
+        "Nếu context không đủ thông tin để trả lời chắc chắn, chỉ trả lời đúng câu sau: "
+        "'Không tìm thấy thông tin trong tài liệu.'"
+    )
+    user_prompt = f"Context:\n{context_str}\n\nCâu hỏi: {query}"
+    
+    answer = call_llm(sys_prompt, user_prompt)
+    
+    if not answer:
         answer = contexts[0] if contexts else "Không tìm thấy thông tin trong tài liệu."
     return answer, contexts
 
