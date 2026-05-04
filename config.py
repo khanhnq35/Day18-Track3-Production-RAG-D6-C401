@@ -16,6 +16,7 @@ GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "google")  # "google" or "openai"
 DEFAULT_LLM = os.getenv("DEFAULT_LLM", "gemini-2.5-flash")
 FALLBACK_LLM = os.getenv("FALLBACK_LLM", "gemini-2.5-flash-lite")
+JUDGE_LLM = os.getenv("JUDGE_LLM", "gemini-2.5-pro")
 
 # --- Embedding Provider ---
 EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "google") # "google" (Vertex AI) or "local"
@@ -41,7 +42,7 @@ SEMANTIC_THRESHOLD = 0.85
 BM25_TOP_K = 20
 DENSE_TOP_K = 20
 HYBRID_TOP_K = 20
-RERANK_TOP_K = 3
+RERANK_TOP_K = 5
 
 # --- Paths ---
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")

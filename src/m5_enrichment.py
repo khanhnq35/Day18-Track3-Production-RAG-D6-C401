@@ -100,59 +100,74 @@ def extract_metadata(text: str) -> dict:
         return {}
 
 
-# ─── Full Enrichment Pipeline ────────────────────────────
+def enrich_chunk_combined(text: str, document_title: str = "") -> dict:
+    """
+    Gộp Contextual, Summary, HyQA và Metadata vào 1 lần gọi LLM.
+    Giảm số lần call từ 4 xuống 1.
+    """
+    if not text.strip():
+        return {}
+
+    sys_prompt = """
+    Phân tích đoạn văn sau và trả về JSON với các trường:
+    1. "context": 1 câu cực ngắn (< 20 từ) mô tả đoạn này nói về cái gì trong tài liệu.
+    2. "summary": tóm tắt ngắn gọn 2 câu.
+    3. "questions": list 3 câu hỏi mà đoạn văn trả lời.
+    4. "metadata": dict chứa {topic, entities: [], category}.
+    
+    Trả về JSON nguyên bản, không dùng markdown block.
+    """.strip()
+    
+    user_prompt = f"Tài liệu: {document_title}\n\nĐoạn văn:\n{text}"
+    raw_json = call_llm(sys_prompt, user_prompt)
+    
+    try:
+        clean_json = raw_json.strip().replace("```json", "").replace("```", "")
+        return json.loads(clean_json)
+    except Exception:
+        return {}
 
 
 def enrich_chunks(chunks: list[dict],
                   methods: list[str] | None = None) -> list[EnrichedChunk]:
     """
-    Chạy enrichment pipeline trên danh sách chunks (dạng dict).
-    Methods có thể gồm: "summary", "hyqa", "contextual", "metadata", "full"
+    Chạy enrichment pipeline. Đã tối ưu hóa gộp call LLM.
     """
     if methods is None:
         methods = ["contextual", "hyqa", "metadata"]
     
-    if "full" in methods:
-        methods = ["summary", "hyqa", "contextual", "metadata"]
-
     enriched = []
-    print(f"Enriching {len(chunks)} chunks using {methods}...")
+    print(f"Enriching {len(chunks)} chunks using Optimized Combined Strategy...")
     
     for i, c in enumerate(chunks):
         raw_text = c.get("text", "")
         old_metadata = c.get("metadata", {})
+        doc_title = old_metadata.get("source", "")
         
-        # Các biến lưu kết quả
-        enriched_text = raw_text
-        summary = ""
-        questions = []
-        auto_meta = {}
+        # Gộp tất cả vào 1 call
+        res = enrich_chunk_combined(raw_text, document_title=doc_title)
+        
+        context = res.get("context", "")
+        summary = res.get("summary", "")
+        questions = res.get("questions", [])
+        auto_meta = res.get("metadata", {})
 
-        # 1. Contextual Prepend (Thay đổi text hiển thị)
-        if "contextual" in methods:
-            doc_title = old_metadata.get("source", "")
-            enriched_text = contextual_prepend(raw_text, document_title=doc_title)
-            
-        # 2. Summarization
-        if "summary" in methods:
-            summary = summarize_chunk(raw_text)
-            
-        # 3. HyQA (Câu hỏi giả định)
-        if "hyqa" in methods:
-            questions = generate_hypothesis_questions(raw_text)
-            
-        # 4. Auto Metadata
-        if "metadata" in methods:
-            auto_meta = extract_metadata(raw_text)
-            
-        # Tạo object EnrichedChunk theo đúng định nghĩa trong file
+        # Merge text
+        enriched_text = raw_text
+        if context:
+            enriched_text = f"[Ngữ cảnh: {context}]\n\n{raw_text}"
+        
+        # Nếu có HyQA, ta có thể chọn prepend vào text để tăng khả năng search
+        if questions:
+            enriched_text += "\n\n[Câu hỏi giả định]: " + " ".join(questions)
+
         enriched.append(EnrichedChunk(
             original_text=raw_text,
             enriched_text=enriched_text,
             summary=summary,
             hypothesis_questions=questions,
             auto_metadata={**old_metadata, **auto_meta},
-            method="+".join(methods)
+            method="combined_optimized"
         ))
         
     return enriched

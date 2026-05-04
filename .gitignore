@@ -8,3 +8,5 @@ qdrant_data/
 reports/*.json
 khanhnq/
 .venv/
+scratch/
+logs/
