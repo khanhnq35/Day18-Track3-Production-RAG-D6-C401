@@ -1,16 +1,17 @@
 """Production RAG Pipeline — Bài tập NHÓM: ghép M1+M2+M3+M4."""
 
-import os, sys, time
+import os
+import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.m1_chunking import load_documents, chunk_hierarchical
+from config import RERANK_TOP_K
+from src.m1_chunking import chunk_hierarchical, load_documents
 from src.m2_search import HybridSearch
 from src.m3_rerank import CrossEncoderReranker
-from src.m4_eval import load_test_set, evaluate_ragas, failure_analysis, save_report
+from src.m4_eval import evaluate_ragas, failure_analysis, load_test_set, save_report
 from src.m5_enrichment import enrich_chunks
-from config import (RERANK_TOP_K, LLM_PROVIDER, DEFAULT_LLM, FALLBACK_LLM, 
-                    GCP_PROJECT_ID, GCP_LOCATION)
 
 
 def build_pipeline():
@@ -55,8 +56,9 @@ def build_pipeline():
     return search, reranker, parent_lookup
 
 
-def run_query(query: str, search: HybridSearch, reranker: CrossEncoderReranker,
-              parent_lookup: dict[str, str]) -> tuple[str, list[str]]:
+def run_query(
+    query: str, search: HybridSearch, reranker: CrossEncoderReranker, parent_lookup: dict[str, str]
+) -> tuple[str, list[str]]:
     """Run single query through pipeline."""
     results = search.search(query)
     docs = [{"text": r.text, "score": r.score, "metadata": r.metadata} for r in results]
@@ -64,7 +66,7 @@ def run_query(query: str, search: HybridSearch, reranker: CrossEncoderReranker,
     source_results = reranked if reranked else results[:3]
     contexts = []
     seen_parent_ids = set()
-    
+
     for result in source_results:
         parent_id = result.metadata.get("parent_id")
         if parent_id and parent_id in parent_lookup:
@@ -77,7 +79,7 @@ def run_query(query: str, search: HybridSearch, reranker: CrossEncoderReranker,
 
     # TODO (nhóm): Replace with LLM generation for better scores
     from src.utils import call_llm
-    
+
     context_str = "\n\n".join(contexts)
     sys_prompt = (
         "Bạn là trợ lý RAG trả lời câu hỏi tiếng Việt dựa trên tài liệu được cung cấp. "
@@ -88,16 +90,15 @@ def run_query(query: str, search: HybridSearch, reranker: CrossEncoderReranker,
         "'Không tìm thấy thông tin trong tài liệu.'"
     )
     user_prompt = f"Context:\n{context_str}\n\nCâu hỏi: {query}"
-    
+
     answer = call_llm(sys_prompt, user_prompt)
-    
+
     if not answer:
         answer = contexts[0] if contexts else "Không tìm thấy thông tin trong tài liệu."
     return answer, contexts
 
 
-def evaluate_pipeline(search: HybridSearch, reranker: CrossEncoderReranker,
-                      parent_lookup: dict[str, str]):
+def evaluate_pipeline(search: HybridSearch, reranker: CrossEncoderReranker, parent_lookup: dict[str, str]):
     """Run evaluation on test set."""
     print("\n[Eval] Running queries...")
     test_set = load_test_set()
@@ -109,7 +110,7 @@ def evaluate_pipeline(search: HybridSearch, reranker: CrossEncoderReranker,
         answers.append(answer)
         all_contexts.append(contexts)
         ground_truths.append(item["ground_truth"])
-        print(f"  [{i+1}/{len(test_set)}] {item['question'][:50]}...")
+        print(f"  [{i + 1}/{len(test_set)}] {item['question'][:50]}...")
 
     print("\n[Eval] Running RAGAS...")
     results = evaluate_ragas(questions, answers, all_contexts, ground_truths)

@@ -31,7 +31,12 @@ def evaluate_ragas(questions: list[str], answers: list[str],
     from ragas import evaluate
     from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
     from datasets import Dataset
+    from langchain_openai import ChatOpenAI, OpenAIEmbeddings
     import pandas as pd
+
+    # Create LLM and embeddings objects
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.0)
+    embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
 
     # 1. Prepare dataset
     data = {
@@ -42,9 +47,9 @@ def evaluate_ragas(questions: list[str], answers: list[str],
     }
     dataset = Dataset.from_dict(data)
 
-    # 2. Run evaluation
+    # 2. Run evaluation with LLM and embeddings
     metrics = [faithfulness, answer_relevancy, context_precision, context_recall]
-    result = evaluate(dataset, metrics=metrics)
+    result = evaluate(dataset, metrics=metrics, llm=llm, embeddings=embeddings)
 
     # 3. Convert to EvalResult list
     df = result.to_pandas()

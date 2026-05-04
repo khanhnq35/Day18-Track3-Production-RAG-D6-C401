@@ -18,8 +18,9 @@ DEFAULT_LLM = os.getenv("DEFAULT_LLM", "gemini-2.5-flash")
 FALLBACK_LLM = os.getenv("FALLBACK_LLM", "gemini-2.5-flash-lite")
 
 # --- Embedding Provider ---
-EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "google") # "google" (Vertex AI) or "local"
+EMBEDDING_PROVIDER = os.getenv("EMBEDDING_PROVIDER", "openai") # "google" (Vertex AI), "openai", or "local"
 GCP_EMBEDDING_MODEL = os.getenv("GCP_EMBEDDING_MODEL", "text-embedding-004") # Model native của Google
+OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 
 # --- Qdrant ---
 QDRANT_HOST = "localhost"
@@ -28,9 +29,9 @@ COLLECTION_NAME = "lab18_production"
 NAIVE_COLLECTION = "lab18_naive"
 
 # --- Embedding ---
-# Default to Vertex AI text-embedding-004
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-004")
-EMBEDDING_DIM = 768  # text-embedding-004 output dimension
+# Default to OpenAI text-embedding-3-small
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", OPENAI_EMBEDDING_MODEL)
+EMBEDDING_DIM = 1536  # text-embedding-3-small output dimension
 
 # --- Chunking ---
 HIERARCHICAL_PARENT_SIZE = 2048

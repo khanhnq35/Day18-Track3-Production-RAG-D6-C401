@@ -3,45 +3,23 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import (LLM_PROVIDER, DEFAULT_LLM, FALLBACK_LLM, GCP_PROJECT_ID, GCP_LOCATION,
-                    EMBEDDING_PROVIDER, GCP_EMBEDDING_MODEL, 
+                    EMBEDDING_PROVIDER, GCP_EMBEDDING_MODEL, OPENAI_EMBEDDING_MODEL,
                     EMBEDDING_DIM, EMBEDDING_MODEL)
 
 def call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.0) -> str:
     """
-    Hàm gọi LLM chung hỗ trợ cả GCP Vertex AI và OpenAI.
-    
+    Hàm gọi LLM dựa trên LLM_PROVIDER (openai hoặc google).
+
     Args:
         system_prompt: Nội dung system prompt.
         user_prompt: Nội dung user prompt.
         temperature: Độ sáng tạo của model (mặc định 0.0).
-        
+
     Returns:
         Câu trả lời từ LLM hoặc chuỗi rỗng nếu có lỗi.
     """
-    try:
-        if LLM_PROVIDER == "google":
-            import vertexai
-            from vertexai.generative_models import GenerativeModel
-            
-            # Khởi tạo Vertex AI nếu project_id được cấu hình
-            if GCP_PROJECT_ID:
-                vertexai.init(project=GCP_PROJECT_ID, location=GCP_LOCATION)
-            
-            def generate_gemini(model_name):
-                model = GenerativeModel(model_name)
-                # Vertex AI không có role system riêng biệt theo cách OpenAI làm trong SDK đơn giản, 
-                # gộp chung vào prompt hoặc dùng system_instruction nếu dùng SDK bản mới.
-                # Ở đây gộp chung để đảm bảo tính tương thích cao.
-                full_prompt = f"System: {system_prompt}\n\nUser: {user_prompt}"
-                response = model.generate_content(full_prompt)
-                return response.text
-
-            try:
-                return generate_gemini(DEFAULT_LLM)
-            except Exception as e:
-                print(f"Gemini Default Error: {e}, falling back to {FALLBACK_LLM}")
-                return generate_gemini(FALLBACK_LLM)
-        else:
+    if LLM_PROVIDER == "openai":
+        try:
             from openai import OpenAI
             client = OpenAI()
             resp = client.chat.completions.create(
@@ -53,31 +31,63 @@ def call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.0) -> 
                 ]
             )
             return resp.choices[0].message.content
-    except Exception as e:
-        print(f"LLM Error in utils.call_llm: {e}")
+        except Exception as e:
+            print(f"OpenAI Error: {e}")
+            return ""
+    elif LLM_PROVIDER == "google":
+        try:
+            import vertexai
+            from vertexai.generative_models import GenerativeModel
+
+            if GCP_PROJECT_ID:
+                vertexai.init(project=GCP_PROJECT_ID, location=GCP_LOCATION)
+
+            model = GenerativeModel(DEFAULT_LLM)
+            full_prompt = f"System: {system_prompt}\n\nUser: {user_prompt}"
+            response = model.generate_content(full_prompt)
+            return response.text
+        except Exception as e:
+            print(f"Google Vertex AI Error: {e}")
+            return ""
+    else:
+        print(f"Unsupported LLM_PROVIDER: {LLM_PROVIDER}")
         return ""
 
 def get_embeddings(texts: list[str], task: str = None) -> list[list[float]]:
     """
-    Lấy embeddings hỗ trợ cả GCP Vertex AI (Native) và Local.
-    
+    Lấy embeddings hỗ trợ OpenAI, GCP Vertex AI (Native) và Local.
+
     Args:
         texts: Danh sách chuỗi văn bản cần embed.
         task: Không dùng cho native (SDK tự xử lý).
-        
+
     Returns:
         Danh sách các vector (list of lists of floats).
     """
     try:
-        if EMBEDDING_PROVIDER == "google":
+        if EMBEDDING_PROVIDER == "openai":
+            from openai import OpenAI
+            client = OpenAI()
+
+            # OpenAI hỗ trợ batch lên đến 2048 texts
+            all_embeddings = []
+            for i in range(0, len(texts), 2048):
+                batch = texts[i:i+2048]
+                response = client.embeddings.create(
+                    model=OPENAI_EMBEDDING_MODEL,
+                    input=batch
+                )
+                all_embeddings.extend([data.embedding for data in response.data])
+            return all_embeddings
+        elif EMBEDDING_PROVIDER == "google":
             import vertexai
             from vertexai.language_models import TextEmbeddingModel
-            
+
             if GCP_PROJECT_ID:
                 vertexai.init(project=GCP_PROJECT_ID, location=GCP_LOCATION)
-            
+
             model = TextEmbeddingModel.from_pretrained(GCP_EMBEDDING_MODEL)
-            
+
             # Giới hạn của Vertex AI thường là 250 instances mỗi request
             all_embeddings = []
             for i in range(0, len(texts), 250):
