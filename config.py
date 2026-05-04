@@ -8,7 +8,6 @@ load_dotenv()
 # --- API Keys ---
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
-JINA_API_KEY = os.getenv("JINA_API_KEY", "")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 # --- GCP Vertex AI ---
@@ -29,9 +28,9 @@ COLLECTION_NAME = "lab18_production"
 NAIVE_COLLECTION = "lab18_naive"
 
 # --- Embedding ---
-# Default to Jina v3 as requested
-EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "jina-ai/jina-embeddings-v3")
-EMBEDDING_DIM = 1024  # jina-v3 supports flexible dims, 1024 is default for many tasks
+# Default to Vertex AI text-embedding-004
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-004")
+EMBEDDING_DIM = 768  # text-embedding-004 output dimension
 
 # --- Chunking ---
 HIERARCHICAL_PARENT_SIZE = 2048

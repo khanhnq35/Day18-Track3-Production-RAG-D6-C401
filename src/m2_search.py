@@ -23,9 +23,9 @@ def segment_vietnamese(text: str) -> str:
     """
     try:
         from underthesea import word_tokenize
-        return word_tokenize(text, format="text")
+        return word_tokenize(text, format="text").lower()
     except Exception:
-        return text  # fallback nếu underthesea chưa cài
+        return text.lower()  # fallback nếu underthesea chưa cài
 
 
 class BM25Search:
@@ -51,6 +51,9 @@ class BM25Search:
             return []
 
         tokenized_query = segment_vietnamese(query).split()
+        # Thêm fallback: nối các từ bằng '_' đề phòng underthesea không gom từ cho câu ngắn
+        tokenized_query.append(query.strip().replace(" ", "_").lower())
+        
         scores = self.bm25.get_scores(tokenized_query)
         top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
 
