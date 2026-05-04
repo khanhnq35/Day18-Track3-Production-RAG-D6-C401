@@ -22,11 +22,15 @@ def build_pipeline():
     print("\n[1/3] Chunking documents...")
     docs = load_documents()
     all_chunks = []
+    parent_lookup = {}
     for doc in docs:
         parents, children = chunk_hierarchical(doc["text"], metadata=doc["metadata"])
+        for parent in parents:
+            parent_lookup[parent.parent_id] = parent.text
         for child in children:
             all_chunks.append({"text": child.text, "metadata": {**child.metadata, "parent_id": child.parent_id}})
     print(f"  {len(all_chunks)} chunks from {len(docs)} documents")
+    print(f"  {len(parent_lookup)} parent chunks for hierarchical context")
 
     # Step 2: Enrichment (M5)
     print("\n[2/4] Enriching chunks (M5)...")
@@ -47,37 +51,68 @@ def build_pipeline():
     print("\n[4/4] Loading reranker...")
     reranker = CrossEncoderReranker()
 
-    return search, reranker
+    return search, reranker, parent_lookup
 
 
-def run_query(query: str, search: HybridSearch, reranker: CrossEncoderReranker) -> tuple[str, list[str]]:
+def run_query(query: str, search: HybridSearch, reranker: CrossEncoderReranker,
+              parent_lookup: dict[str, str]) -> tuple[str, list[str]]:
     """Run single query through pipeline."""
     results = search.search(query)
     docs = [{"text": r.text, "score": r.score, "metadata": r.metadata} for r in results]
     reranked = reranker.rerank(query, docs, top_k=RERANK_TOP_K)
-    contexts = [r.text for r in reranked] if reranked else [r.text for r in results[:3]]
+    source_results = reranked if reranked else results[:3]
+    contexts = []
+    seen_parent_ids = set()
+    
+    for result in source_results:
+        parent_id = result.metadata.get("parent_id")
+        if parent_id and parent_id in parent_lookup:
+            if parent_id in seen_parent_ids:
+                continue
+            contexts.append(parent_lookup[parent_id])
+            seen_parent_ids.add(parent_id)
+        else:
+            contexts.append(result.text)
 
     # TODO (nhóm): Replace with LLM generation for better scores
-    # from openai import OpenAI
-    # client = OpenAI()
-    # context_str = "\n\n".join(contexts)
-    # resp = client.chat.completions.create(model="gpt-4o-mini", messages=[
-    #     {"role": "system", "content": "Trả lời CHỈ dựa trên context. Nếu không có → nói 'Không tìm thấy.'"},
-    #     {"role": "user", "content": f"Context:\n{context_str}\n\nCâu hỏi: {query}"},
-    # ])
-    # answer = resp.choices[0].message.content
-    answer = contexts[0] if contexts else "Không tìm thấy thông tin."
+    try:
+        from openai import OpenAI
+        client = OpenAI()
+        context_str = "\n\n".join(contexts)
+        
+        sys_prompt = (
+            "Bạn là trợ lý RAG trả lời câu hỏi tiếng Việt dựa trên tài liệu được cung cấp. "
+            "Chỉ sử dụng thông tin xuất hiện trực tiếp trong phần Context. "
+            "Không sử dụng kiến thức bên ngoài, không suy luận ngoài context, không bịa thêm chi tiết. "
+            "Trả lời trực tiếp, ngắn gọn, đúng trọng tâm câu hỏi. "
+            "Nếu context không đủ thông tin để trả lời chắc chắn, chỉ trả lời đúng câu sau: "
+            "'Không tìm thấy thông tin trong tài liệu.'"
+        )
+        
+        resp = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.0,
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": f"Context:\n{context_str}\n\nCâu hỏi: {query}"},
+            ]
+        )
+        answer = resp.choices[0].message.content
+    except Exception as e:
+        print(f"LLM Error: {e}")
+        answer = contexts[0] if contexts else "Không tìm thấy thông tin trong tài liệu."
     return answer, contexts
 
 
-def evaluate_pipeline(search: HybridSearch, reranker: CrossEncoderReranker):
+def evaluate_pipeline(search: HybridSearch, reranker: CrossEncoderReranker,
+                      parent_lookup: dict[str, str]):
     """Run evaluation on test set."""
     print("\n[Eval] Running queries...")
     test_set = load_test_set()
     questions, answers, all_contexts, ground_truths = [], [], [], []
 
     for i, item in enumerate(test_set):
-        answer, contexts = run_query(item["question"], search, reranker)
+        answer, contexts = run_query(item["question"], search, reranker, parent_lookup)
         questions.append(item["question"])
         answers.append(answer)
         all_contexts.append(contexts)
@@ -101,6 +136,6 @@ def evaluate_pipeline(search: HybridSearch, reranker: CrossEncoderReranker):
 
 if __name__ == "__main__":
     start = time.time()
-    search, reranker = build_pipeline()
-    evaluate_pipeline(search, reranker)
+    search, reranker, parent_lookup = build_pipeline()
+    evaluate_pipeline(search, reranker, parent_lookup)
     print(f"\nTotal: {time.time() - start:.1f}s")

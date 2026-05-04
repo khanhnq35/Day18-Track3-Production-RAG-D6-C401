@@ -120,23 +120,41 @@ def chunk_hierarchical(text: str, parent_size: int = HIERARCHICAL_PARENT_SIZE,
         (parents, children) — mỗi child có parent_id link đến parent.
     """
     metadata = metadata or {}
-    # TODO: Implement hierarchical chunking
-    # 1. Split text into parents:
-    #    paragraphs = text.split("\n\n")
-    #    Gom paragraphs cho đến khi đạt parent_size → 1 parent chunk
-    #    pid = f"parent_{p_index}"
-    #    parent = Chunk(text=parent_text, metadata={**metadata, "chunk_type": "parent", "parent_id": pid})
-    #
-    # 2. Split each parent into children:
-    #    Slide window child_size trên parent text
-    #    child = Chunk(text=child_text, metadata={**metadata, "chunk_type": "child"}, parent_id=pid)
-    #
-    # 3. Return (parents_list, children_list)
-    #
-    # Production pattern:
-    #   - Index CHILDREN vào vector DB (nhỏ → embedding chính xác)
-    #   - Khi retrieve child → lookup parent_id → trả parent cho LLM (đủ context)
-    return [], []
+    parents = []
+    children = []
+    child_overlap = min(max(child_size // 5, 1), child_size - 1)
+    child_step = child_size - child_overlap
+    
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    current_parent_text = ""
+    parent_index = 0
+    
+    def add_parent_with_children(parent_text: str, p_index: int) -> None:
+        """Create one parent chunk and overlapping child chunks."""
+        pid = f"parent_{p_index}"
+        parent_metadata = {**metadata, "chunk_type": "parent", "parent_id": pid}
+        child_metadata = {**metadata, "chunk_type": "child", "parent_id": pid}
+        parents.append(Chunk(text=parent_text, metadata=parent_metadata, parent_id=pid))
+        
+        for start in range(0, len(parent_text), child_step):
+            child_text = parent_text[start:start + child_size].strip()
+            if child_text:
+                children.append(Chunk(text=child_text, metadata=child_metadata, parent_id=pid))
+            if start + child_size >= len(parent_text):
+                break
+    
+    for para in paragraphs:
+        if len(current_parent_text) + len(para) > parent_size and current_parent_text:
+            add_parent_with_children(current_parent_text.strip(), parent_index)
+            parent_index += 1
+            current_parent_text = ""
+            
+        current_parent_text += para + "\n\n"
+        
+    if current_parent_text.strip():
+        add_parent_with_children(current_parent_text.strip(), parent_index)
+            
+    return parents, children
 
 
 # ─── Strategy 3: Structure-Aware Chunking ────────────────
