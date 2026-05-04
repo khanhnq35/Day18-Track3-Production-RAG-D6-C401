@@ -59,17 +59,11 @@ Ngày:
 | 2   | Thuế giá trị gia tăng mua vào của dự án đầu tư được trừ với thuế GTGT còn phải nộp của hoạt động sản xuất kinh doanh cùng kỳ tính thuế ([40b]≤[40a]) | [40b] | 0                     |
 | 3   | Thuế giá trị gia tăng còn phải nộp trong kỳ ([40]=[40a]-[40b])       | [40]                 | 52.133.830            |
 | 4   | Thuế giá trị gia tăng chưa khấu trừ kỳ này                           | [41]                 | 0                     |
-|     | ([41]=-[36]-[22]+[37]-[38]-[39a]) ≤ 0)                               |                      |                       |
+| 4.1 | Thuế giá trị gia tăng đề nghị hoàn (42] ≤ [41]) | [42] | 0 |
+| 4.2 | Thuế giá trị gia tăng còn được khấu trừ chuyển kỳ sau (43] = [41] - [42]) | [43] | 0 |
 
-1/2
-
----
 
 ## Trang 2
-
-| 4.1 | Thuế giá trị gia tăng đề nghị hoàn (42] ≤ [41]) | [42] | 0 |
-|-----|-------------------------------------------------|------|---|
-| 4.2 | Thuế giá trị gia tăng còn được khấu trừ chuyển kỳ sau (43] = [41] - [42]) | [43] | 0 |
 
 Tôi cam đoan số liệu khai trên là đúng và chịu trách nhiệm trước pháp luật về số liệu đã khai./.
 
@@ -84,9 +78,5 @@ TRỊNH THỊ SANG
 
 Ký điện tử bởi: CÔNG TY CỔ PHẦN DHA SURFACES.
 
----
 
-2/2
-
----
 
