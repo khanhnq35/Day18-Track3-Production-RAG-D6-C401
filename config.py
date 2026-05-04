@@ -9,6 +9,7 @@ load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 COHERE_API_KEY = os.getenv("COHERE_API_KEY", "")
 JINA_API_KEY = os.getenv("JINA_API_KEY", "")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 # --- GCP Vertex AI ---
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")
