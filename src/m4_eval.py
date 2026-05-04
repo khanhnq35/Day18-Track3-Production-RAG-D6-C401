@@ -25,43 +25,185 @@ def load_test_set(path: str = TEST_SET_PATH) -> list[dict]:
         return json.load(f)
 
 
+# --- Ragas Vertex AI Wrapper ---
+from ragas.llms import BaseRagasLLM
+from langchain_core.outputs import LLMResult, Generation
+from ragas.embeddings import BaseRagasEmbeddings
+from src.utils import call_llm, get_embeddings
+from config import DEFAULT_LLM, FALLBACK_LLM, JUDGE_LLM
+
+class VertexRagasLLM(BaseRagasLLM):
+    def generate_text(self, prompt, n=1, temperature=1e-8, stop=None, callbacks=None):
+        # prompt is a PromptValue or string
+        prompt_str = prompt.to_string() if hasattr(prompt, "to_string") else str(prompt)
+        res = call_llm("Bạn là quan tòa chấm điểm RAG.", prompt_str, temperature=temperature, model_name=JUDGE_LLM)
+        
+        # Làm sạch JSON bằng regex (mạnh mẽ hơn)
+        import re
+        match = re.search(r"(\{.*\})", res, re.DOTALL)
+        clean_res = match.group(1) if match else res.strip()
+        
+        # DEBUG LOG
+        log_dir = "logs"
+        os.makedirs(log_dir, exist_ok=True)
+        with open(os.path.join(log_dir, "ragas_debug.txt"), "a", encoding="utf-8") as f:
+            f.write(f"\n--- PROMPT ---\n{prompt_str}\n")
+            f.write(f"--- RESPONSE ---\n{res}\n")
+            f.write(f"--- CLEANED ---\n{clean_res}\n")
+            f.write("-" * 50 + "\n")
+            
+        return LLMResult(generations=[[Generation(text=clean_res) for _ in range(n)]])
+    
+    async def agenerate_text(self, prompt, n=1, temperature=1e-8, stop=None, callbacks=None):
+        return self.generate_text(prompt, n, temperature, stop, callbacks)
+    
+    def is_finished(self, response: LLMResult) -> bool:
+        return True
+
+class VertexRagasEmbeddings(BaseRagasEmbeddings):
+    def embed_texts(self, texts):
+        return get_embeddings(texts)
+    
+    def embed_documents(self, texts):
+        return self.embed_texts(texts)
+    
+    def embed_query(self, text):
+        return self.embed_texts([text])[0]
+        
+    async def aembed_texts(self, texts):
+        return self.embed_texts(texts)
+
+    async def aembed_documents(self, texts):
+        return self.embed_texts(texts)
+        
+    async def aembed_query(self, text):
+        return self.embed_texts([text])[0]
+
+
 def evaluate_ragas(questions: list[str], answers: list[str],
                    contexts: list[list[str]], ground_truths: list[str]) -> dict:
     """Run RAGAS evaluation."""
-    # TODO: Implement RAGAS evaluation
-    # 1. from ragas import evaluate
-    #    from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
-    #    from datasets import Dataset
-    # 2. dataset = Dataset.from_dict({
-    #        "question": questions, "answer": answers,
-    #        "contexts": contexts, "ground_truth": ground_truths,
-    #    })
-    # 3. result = evaluate(dataset, metrics=[faithfulness, answer_relevancy,
-    #                                        context_precision, context_recall])
-    # 4. df = result.to_pandas()
-    # 5. per_question = [EvalResult(question=row.question, ...) for _, row in df.iterrows()]
-    # 6. Return {"faithfulness": float, "answer_relevancy": float,
-    #            "context_precision": float, "context_recall": float,
-    #            "per_question": per_question}
-    return {"faithfulness": 0.0, "answer_relevancy": 0.0,
-            "context_precision": 0.0, "context_recall": 0.0, "per_question": []}
+    from ragas import evaluate
+    from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
+    from datasets import Dataset
+    import pandas as pd
+
+    # 1. Prepare dataset
+    data = {
+        "question": questions,
+        "answer": answers,
+        "contexts": contexts,
+        "ground_truth": ground_truths,
+    }
+    dataset = Dataset.from_dict(data)
+
+    # 2. Run evaluation
+    metrics = [faithfulness, answer_relevancy, context_precision, context_recall]
+    
+    # Khởi tạo wrappers
+    ragas_llm = VertexRagasLLM()
+    ragas_emb = VertexRagasEmbeddings()
+
+    from ragas.run_config import RunConfig
+    run_config = RunConfig(max_workers=4, timeout=120)
+
+    result = evaluate(dataset, metrics=metrics, llm=ragas_llm, embeddings=ragas_emb, run_config=run_config, raise_exceptions=False)
+
+    # 3. Convert to EvalResult list
+    df = result.to_pandas()
+    per_question = []
+    for _, row in df.iterrows():
+        per_question.append(EvalResult(
+            question=row.get("user_input", row.get("question", "")),
+            answer=row.get("response", row.get("answer", "")),
+            contexts=row.get("retrieved_contexts", row.get("contexts", [])),
+            ground_truth=row.get("reference", row.get("ground_truth", "")),
+            faithfulness=float(row.get("faithfulness", 0.0)),
+            answer_relevancy=float(row.get("answer_relevancy", 0.0)),
+            context_precision=float(row.get("context_precision", 0.0)),
+            context_recall=float(row.get("context_recall", 0.0))
+        ))
+
+    # 4. Return results dictionary
+    # Ragas result indexing returns a list of scores per row. We need the mean.
+    def get_metric_mean(res, metric_name):
+        scores = res[metric_name]
+        if isinstance(scores, (list, pd.Series)):
+            # Convert to series to use mean() which handles NaN better or just sum/len
+            s = pd.Series(scores).fillna(0.0)
+            return float(s.mean())
+        return float(scores) if pd.notnull(scores) else 0.0
+
+    return {
+        "faithfulness": get_metric_mean(result, "faithfulness"),
+        "answer_relevancy": get_metric_mean(result, "answer_relevancy"),
+        "context_precision": get_metric_mean(result, "context_precision"),
+        "context_recall": get_metric_mean(result, "context_recall"),
+        "per_question": per_question
+    }
 
 
 def failure_analysis(eval_results: list[EvalResult], bottom_n: int = 10) -> list[dict]:
     """Analyze bottom-N worst questions using Diagnostic Tree."""
-    # TODO: Implement failure analysis
-    # 1. For each result, avg_score = mean(faithfulness, answer_relevancy, context_precision, context_recall)
-    # 2. Sort by avg_score ascending → take bottom_n
-    # 3. For each failed question:
-    #    worst_metric = metric with lowest score
-    #    Map to diagnosis:
-    #      faithfulness < 0.85     → diagnosis="LLM hallucinating", fix="Tighten prompt, lower temperature"
-    #      context_recall < 0.75   → diagnosis="Missing relevant chunks", fix="Improve chunking or add BM25"
-    #      context_precision < 0.75 → diagnosis="Too many irrelevant chunks", fix="Add reranking or metadata filter"
-    #      answer_relevancy < 0.80 → diagnosis="Answer doesn't match question", fix="Improve prompt template"
-    # 4. Return [{"question": str, "worst_metric": str, "score": float,
-    #             "diagnosis": str, "suggested_fix": str}]
-    return []
+    if not eval_results:
+        return []
+
+    processed = []
+    for res in eval_results:
+        # Calculate avg score for sorting
+        scores = [res.faithfulness, res.answer_relevancy, res.context_precision, res.context_recall]
+        avg_score = sum(scores) / 4.0
+        
+        # Default values
+        diagnosis = "Passing thresholds"
+        fix = "None needed"
+        worst_metric = ""
+        score = 0.0
+        
+        # Map to diagnosis using Diagnostic Tree thresholds
+        if res.faithfulness < 0.85:
+            diagnosis = "LLM hallucinating"
+            fix = "Tighten prompt, lower temperature"
+            worst_metric = "faithfulness"
+            score = res.faithfulness
+        elif res.context_recall < 0.75:
+            diagnosis = "Missing relevant chunks"
+            fix = "Improve chunking or add BM25"
+            worst_metric = "context_recall"
+            score = res.context_recall
+        elif res.context_precision < 0.75:
+            diagnosis = "Too many irrelevant chunks"
+            fix = "Add reranking or metadata filter"
+            worst_metric = "context_precision"
+            score = res.context_precision
+        elif res.answer_relevancy < 0.80:
+            diagnosis = "Answer doesn't match question"
+            fix = "Improve prompt template"
+            worst_metric = "answer_relevancy"
+            score = res.answer_relevancy
+        else:
+            # If all metrics pass thresholds, still identify the lowest one for reporting
+            metrics = {
+                "faithfulness": res.faithfulness,
+                "answer_relevancy": res.answer_relevancy,
+                "context_precision": res.context_precision,
+                "context_recall": res.context_recall
+            }
+            worst_metric = min(metrics, key=metrics.get)
+            score = metrics[worst_metric]
+
+        processed.append({
+            "question": res.question,
+            "avg_score": avg_score,
+            "worst_metric": worst_metric,
+            "score": score,
+            "diagnosis": diagnosis,
+            "suggested_fix": fix
+        })
+    
+    # Sort by avg_score ascending and take bottom_n
+    processed.sort(key=lambda x: x["avg_score"])
+    return processed[:bottom_n]
 
 
 def save_report(results: dict, failures: list[dict], path: str = "ragas_report.json"):
