@@ -10,3 +10,4 @@ khanhnq/
 .venv/
 scratch/
 logs/
+qdrant_db/

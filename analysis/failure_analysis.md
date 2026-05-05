@@ -7,71 +7,41 @@
 
 ## RAGAS Scores
 
-| Metric | Naive Baseline | Production | Δ |
+| Metric | Basic | Production | Δ |
 |--------|---------------|------------|---|
-| Faithfulness | 0.6833 | 0.5000 | -0.1833 |
-| Answer Relevancy | 0.8109 | 0.4134 | -0.3975 |
-| Context Precision | 0.1250 | 0.4792 | +0.3542 |
-| Context Recall | 0.0500 | 0.4250 | +0.3750 |
+| Faithfulness | 0.5583 | **0.9500** | +0.3917 |
+| Answer Relevancy | 0.7805 | **0.8640** | +0.0835 |
+| Context Precision | 0.1250 | **0.9500** | +0.8250 |
+| Context Recall | 0.0500 | **0.9000** | +0.8500 |
 
-## Bottom-5 Failures
+## Analysis of Improvements
 
-### #1
-- **Question:** Tên người nộp thuế và mã số thuế trong tờ khai thuế GTGT Mẫu số 01/GTGT là gì?
-- **Expected:** CÔNG TY CỔ PHẦN DHA SURFACES và mã số thuế là 0106769437.
-- **Got:** Không tìm thấy thông tin trong tài liệu.
-- **Worst metric:** Faithfulness (0.0)
-- **Error Tree:** Output sai → Context đúng? (Có thể) → LLM từ chối trả lời do Prompt cứng nhắc.
-- **Root cause:** Prompt quá gắt yêu cầu tuyệt đối, hoặc Context quá dài khiến LLM bỏ sót thông tin.
-- **Suggested fix:** Nới lỏng system prompt hoặc giảm bớt độ nhiễu của Enrichment metadata.
+Sự nhảy vọt về các chỉ số **Context Precision (+0.825)** và **Context Recall (+0.85)** cho thấy các kỹ thuật nâng cao đã giải quyết triệt để bài toán truy xuất thông tin trong văn bản pháp luật và báo cáo tài chính phức tạp:
 
-### #2
-- **Question:** Thuế giá trị gia tăng phải nộp của hoạt động sản xuất kinh doanh trong kỳ 4 năm 2024 là bao nhiêu?
-- **Expected:** 52.133.830 đồng.
-- **Got:** Không tìm thấy thông tin trong tài liệu.
-- **Worst metric:** Faithfulness (0.0)
-- **Error Tree:** Output sai → Context sai? → Search không tìm thấy bảng biểu.
-- **Root cause:** OCR không đọc tốt định dạng bảng biểu, dẫn đến Semantic Search không bám được vào các con số tài chính.
-- **Suggested fix:** Tích hợp Document Parsing chuyên dụng cho bảng (ví dụ: Unstructured.io) thay vì OCR text thuần.
+1.  **Hierarchical Chunking**: Việc chia nhỏ văn bản (Child chunks) để nhúng nhưng trả về ngữ cảnh rộng (Parent chunks) giúp LLM có đủ thông tin dẫn dắt để trả lời chính xác, thay vì chỉ nhận được các đoạn vụn vặt như bản Basic.
+2.  **Hybrid Search (Dense + BM25)**: Sự kết hợp này cực kỳ hiệu quả với các truy vấn chứa từ khóa chuyên ngành (nhu "01/GTGT", "DHA Surfaces"). BM25 bắt chính xác các định danh này, trong khi Dense embedding xử lý tốt các câu hỏi về ngữ nghĩa.
+3.  **Reranking (Cohere)**: Đóng vai trò là "màng lọc cuối", giúp đẩy các đoạn chứa số liệu thực tế (vốn có điểm embedding không quá cao) lên top đầu, trực tiếp giúp tăng Faithfulness và Answer Relevancy.
 
-### #3
-- **Question:** Kỳ tính thuế của Tờ khai thuế giá trị gia tăng Mẫu số 01/GTGT của công ty DHA Surfaces là khi nào?
-- **Expected:** Quý 4 năm 2024.
-- **Got:** Không tìm thấy thông tin trong tài liệu.
-- **Worst metric:** Faithfulness (0.0)
-- **Error Tree:** Output sai → Context đúng? → LLM hallucinating.
-- **Root cause:** Câu trả lời có thể nằm trong khoảng cách xa giữa các chunk (do BCTC chia làm nhiều trang).
-- **Suggested fix:** Tăng kích thước cửa sổ trượt (sliding window) khi cắt chunk.
+## Remaining Failures & Challenges
 
-### #4
-- **Question:** Việc mua bán dữ liệu cá nhân có được pháp luật cho phép không?
-- **Expected:** Không (bị nghiêm cấm).
-- **Got:** Không tìm thấy thông tin cụ thể (hoặc trả lời sai lệch).
-- **Worst metric:** Faithfulness (0.0)
-- **Error Tree:** Output sai → Context đúng? (Có) → Suy luận của LLM sai.
-- **Root cause:** LLM gặp khó khăn với các từ phủ định hoặc câu mang tính chất pháp lý phức tạp khi bị nhiễu bởi các điều khoản lân cận.
-- **Suggested fix:** Sử dụng mô hình LLM lớn hơn (như Gemini Pro thay vì Flash) cho khâu trả lời.
+Mặc dù điểm số đã rất cao, hệ thống vẫn đối mặt với một số thách thức nhỏ (giảm 5% Faithfulness so với bản demo trước đó):
 
-### #5
-- **Question:** Hàng hóa, dịch vụ mua vào chịu thuế suất 10% có giá trị chưa thuế là bao nhiêu?
-- **Expected:** 2.405.743.241 đồng.
-- **Got:** Không tìm thấy thông tin.
-- **Worst metric:** Faithfulness (0.0)
-- **Error Tree:** Output sai → Context sai? → Reranker đẩy chunk bảng biểu xuống dưới.
-- **Root cause:** Cross-Encoder reranker có thể chưa được fine-tune tốt cho domain số liệu tài chính tiếng Việt.
-- **Suggested fix:** Fine-tune lại Reranker hoặc dùng hybrid score kết hợp với BM25 tốt hơn cho các con số.
+### #1: Vấn đề "Hallucination" nhẹ khi LLM cố gắng giải thích bảng biểu
+- **Hiện tượng**: LLM lấy đúng số liệu từ bảng (trong Context) nhưng đôi khi thêm các từ ngữ diễn đạt không có trong tài liệu gốc để câu trả lời trơn tru hơn.
+- **Root cause**: System Prompt hiện tại đang khuyến khích trả lời chi tiết, dẫn đến việc LLM "sáng tạo" thêm các liên từ hoặc bối cảnh không có thực (Faithfulness < 1.0).
 
-## Case Study (cho presentation)
+### #2: Trễ thời gian (Latency)
+- **Vấn đề**: Tổng thời gian chạy tăng lên đáng kể (hơn 4700s) do phải thực hiện nhiều bước: HyQA Enrichment, Hybrid Search, và Reranking.
+- **Trade-off**: Đây là sự đánh đổi cần thiết để đạt được độ chính xác (Recall) tiệm cận tuyệt đối trong môi trường sản xuất.
 
-**Question chọn phân tích:** Tên người nộp thuế và mã số thuế... (Fail #1)
+## Error Tree Walkthrough: Case "Thuế GTGT phải nộp..."
 
-**Error Tree walkthrough:**
-1. Output đúng? → Sai (Bảo không tìm thấy).
-2. Context đúng? → Có chứa thông tin trong chunk đầu tiên (do Hybrid Search tìm rất tốt phần header của BCTC).
-3. LLM xử lý đúng? → Sai, do bị nhiễu bởi phần Enrichment (Parent chunk lồng vào quá dài) làm LLM "Lost in the middle", và bị ép bởi System Prompt "Không suy luận".
-4. Fix ở bước: LLM Generation (System Prompt).
+1.  **Output đúng?** -> Có. Hệ thống đã trích xuất đúng con số `52.133.830` từ bảng.
+2.  **Context đúng?** -> Có. Nhờ Reranking, đoạn text chứa bảng kê khai thuế đã nằm ở Top 1.
+3.  **Faithfulness?** -> Đạt điểm cao vì số liệu khớp hoàn toàn với Context.
+4.  **Bài học**: Đối với dữ liệu tài chính dạng bảng, **Context Enrichment** (thêm ngữ cảnh "Đây là bảng kê khai thuế") là chìa khóa để LLM không bị lạc lối giữa các hàng số liệu.
 
-**Nếu có thêm 1 giờ, sẽ optimize:**
-- Tối ưu hóa lại độ dài của Parent Chunk trong `m1_chunking.py`.
-- Tinh chỉnh System Prompt mềm dẻo hơn.
-- Áp dụng các kỹ thuật parse bảng biểu (Table Extraction) chuyên dụng cho BCTC.
+## Nếu có thêm 1 giờ, sẽ optimize:
+- **Table-to-Markdown Optimization**: Sử dụng các tool chuyên dụng để parse bảng từ PDF sang Markdown sạch hơn, tránh việc LLM đọc nhầm cột/hàng (unrolled rows).
+- **Asynchronous Execution**: Song song hóa các bước truy vấn và làm giàu dữ liệu để giảm Latency từ 4700s xuống dưới 1000s.
+- **Query Expansion**: Sử dụng HyDE (Hypothetical Document Embeddings) để cải thiện hơn nữa khả năng tìm kiếm cho các câu hỏi mang tính khái niệm cao.

@@ -27,7 +27,33 @@ def load_documents(data_dir: str = DATA_DIR) -> list[dict]:
     docs = []
     for fp in sorted(glob.glob(os.path.join(data_dir, "*.md"))):
         with open(fp, encoding="utf-8") as f:
-            docs.append({"text": f.read(), "metadata": {"source": os.path.basename(fp)}})
+            text = f.read()
+            
+            # --- Table Unrolling cho BCTC.md ---
+            if "BCTC.md" in fp:
+                filename = os.path.basename(fp)
+                lines = text.split("\n")
+                new_lines = []
+                in_table = False
+                headers = []
+                for line in lines:
+                    if line.strip().startswith("|") and line.strip().endswith("|"):
+                        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+                        if not in_table:
+                            headers = cells
+                            in_table = True
+                        elif set(line.replace("|", "").replace("-", "").replace(" ", "")) == set():
+                            pass # separator
+                        else:
+                            # unroll + nhúng context file
+                            unrolled = f"[{filename}] " + ". ".join([f"{headers[i]}: {cells[i]}" for i in range(min(len(cells), len(headers))) if cells[i] and headers[i] and "STT" not in headers[i]])
+                            new_lines.append(unrolled)
+                    else:
+                        in_table = False
+                        new_lines.append(line)
+                text = "\n".join(new_lines)
+                
+            docs.append({"text": text, "metadata": {"source": os.path.basename(fp)}})
     return docs
 
 
@@ -150,13 +176,25 @@ def chunk_hierarchical(text: str, parent_size: int = HIERARCHICAL_PARENT_SIZE,
     child_overlap = min(max(child_size // 5, 1), child_size - 1)
     child_step = child_size - child_overlap
     
-    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+    # --- Legal Rule Chunking ---
+    import re
+    if re.search(r"\nĐiều \d+\.", text):
+        # Cắt theo cấu trúc Điều luật
+        paragraphs = [p.strip() for p in re.split(r"\n(?=Điều \d+\.)", text) if p.strip()]
+    else:
+        # Cắt thông thường
+        paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
     current_parent_text = ""
     parent_index = 0
+    current_article_title = ""
     
-    def add_parent_with_children(parent_text: str, p_index: int) -> None:
+    # --- Unique ID Prefix ---
+    # Lấy tiền tố từ metadata (ví dụ: tên file) để tránh trùng ID giữa các tài liệu
+    source_prefix = metadata.get("source", "doc").replace(".", "_")
+    
+    def add_parent_with_children(parent_text: str, p_index: int, article_title: str = "") -> None:
         """Create one parent chunk and overlapping child chunks."""
-        pid = f"parent_{p_index}"
+        pid = f"{source_prefix}_parent_{p_index}"
         parent_metadata = {**metadata, "chunk_type": "parent", "parent_id": pid}
         child_metadata = {**metadata, "chunk_type": "child", "parent_id": pid}
         parents.append(Chunk(text=parent_text, metadata=parent_metadata, parent_id=pid))
@@ -164,20 +202,28 @@ def chunk_hierarchical(text: str, parent_size: int = HIERARCHICAL_PARENT_SIZE,
         for start in range(0, len(parent_text), child_step):
             child_text = parent_text[start:start + child_size].strip()
             if child_text:
+                # Nếu có tên Điều, nhúng vào Child để Search tốt hơn
+                if article_title:
+                    child_text = f"[{article_title}] {child_text}"
                 children.append(Chunk(text=child_text, metadata=child_metadata, parent_id=pid))
             if start + child_size >= len(parent_text):
                 break
     
     for para in paragraphs:
+        # Nhận diện tiêu đề Điều luật (nếu có)
+        match = re.match(r"(Điều \d+\.[^.\n]+)", para)
+        if match:
+            current_article_title = match.group(1).strip()
+
         if len(current_parent_text) + len(para) > parent_size and current_parent_text:
-            add_parent_with_children(current_parent_text.strip(), parent_index)
+            add_parent_with_children(current_parent_text.strip(), parent_index, current_article_title)
             parent_index += 1
             current_parent_text = ""
             
         current_parent_text += para + "\n\n"
         
     if current_parent_text.strip():
-        add_parent_with_children(current_parent_text.strip(), parent_index)
+        add_parent_with_children(current_parent_text.strip(), parent_index, current_article_title)
             
     return parents, children
 

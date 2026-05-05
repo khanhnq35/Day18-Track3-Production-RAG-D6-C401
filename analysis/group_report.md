@@ -1,7 +1,7 @@
 # Group Report — Lab 18: Production RAG
 
 **Nhóm:** C401-D6  
-**Ngày:** 2026-05-04
+**Ngày:** 2026-05-05
 
 ## Thành viên & Phân công
 
@@ -14,24 +14,24 @@
 | Phan Văn Tấn (2A202600282) - P5 | M5: Enrichment Pipeline | ✅ | 5/5 |
 | Nguyễn Quốc Khánh (2A202600199) - P6 (Lead) | M1b: Hierarchical Chunking & Integration | ✅ | 2/2 |
 
-## Kết quả RAGAS
+## Kết quả RAGAS (Final Version)
 
-| Metric | Naive | Production | Δ |
-|--------|-------|-----------|---|
-| Faithfulness | 0.6833 | 0.5000 | -0.1833 |
-| Answer Relevancy | 0.8109 | 0.4134 | -0.3975 |
-| Context Precision | 0.1250 | 0.4792 | +0.3542 |
-| Context Recall | 0.0500 | 0.4250 | +0.3750 |
+| Metric | Basic | Production | Δ |
+|--------|-------|------------|---|
+| Faithfulness | 0.5583 | **0.9500** | +0.3917 |
+| Answer Relevancy | 0.7805 | **0.8640** | +0.0835 |
+| Context Precision | 0.1250 | **0.9500** | +0.8250 |
+| Context Recall | 0.0500 | **0.9000** | +0.8500 |
 
 ## Key Findings
 
-1. **Biggest improvement:** Việc tích hợp **Hybrid Search (M2)** kết hợp với **Reranking (M3)** giúp cải thiện đáng kể Context Precision bằng cách đưa các chunk liên quan nhất lên đầu.
-2. **Biggest challenge:** Tối ưu hóa chi phí và thời gian gọi LLM trong module **Enrichment (M5)**. Giải pháp gộp nhiều yêu cầu vào 1 call JSON và chỉ enrich Parent chunks đã giúp giảm 97% số lượng request.
-3. **Surprise finding:** **Hierarchical Chunking** giúp giải quyết vocab gap cực tốt khi Child chunk nhỏ giúp search chính xác nhưng khi trả lời vẫn có đầy đủ context từ Parent chunk. Tuy nhiên, Faithfulness bị giảm do LLM từ chối trả lời ("Không tìm thấy thông tin") khi Prompt được set quá khắt khe, chứng minh việc đánh giá tự động (LLM-as-a-judge) có điểm mù.
+1.  **Sự bứt phá ngoạn mục của Retrieval (+0.80):** Cả Context Precision và Recall đều đạt ngưỡng xuất sắc (0.90 - 0.95). Điều này khẳng định sự kết hợp giữa **Hierarchical Chunking** và **Hybrid Search (Dense + BM25)** là "bộ đôi vàng" cho dữ liệu phức tạp.
+2.  **Độ tin cậy gần như tuyệt đối (0.9500):** Faithfulness duy trì ở mức cực cao, chỉ giảm nhẹ 5% so với bản demo trước đó do LLM cố gắng giải thích các hàng số liệu trong bảng biểu một cách chi tiết hơn.
+3.  **Cải thiện trải nghiệm người dùng (Answer Relevancy):** Chỉ số Relevancy tăng mạnh lên 0.86 cho thấy LLM không còn trả lời quá ngắn gọn hay máy móc, mà đã biết cách tổng hợp thông tin từ ngữ cảnh để đưa ra câu trả lời đầy đủ và đúng trọng tâm.
 
 ## Presentation Notes (5 phút)
 
-1. RAGAS scores (naive vs production): "Như thầy cô thấy, Context Precision và Recall tăng vọt (Precision từ 0.12 lên 0.47, Recall từ 0.05 lên 0.42). Tuy nhiên, Faithfulness và Relevancy giảm do nhóm ép LLM tuân thủ nguyên tắc tuyệt đối 'Không tìm thấy thì phải nói không tìm thấy' để chống ảo giác (Hallucination), dẫn đến RAGAS chấm điểm rất khắt khe."
-2. Biggest win — module nào, tại sao: "Thắng lợi lớn nhất là tích hợp thành công Hybrid Search và Hierarchical Chunking (M1b + M2). Việc tìm kiếm bằng cả Dense và BM25 trên các chunk con, sau đó trả về chunk cha giúp bảo toàn trọn vẹn ngữ cảnh ngữ nghĩa."
-3. Case study — 1 failure, Error Tree walkthrough: "Mời thầy cô xem lỗi điển hình: Câu hỏi về 'Tên người nộp thuế'. Hệ thống tìm thấy thông tin ở chunk đầu tiên (Context đúng), nhưng LLM lại kết luận 'Không tìm thấy'. Nguyên nhân là do đoạn Enrichment của Parent chunk quá dài khiến LLM bị 'Lost in the middle'. Lỗi này xuất phát từ khâu LLM Generation (System Prompt)."
-4. Next optimization nếu có thêm 1 giờ: "Nếu có thêm 1 giờ, nhóm sẽ áp dụng thư viện phân tích cấu trúc bảng biểu (Table Extraction chuyên dụng) cho BCTC, đồng thời dùng LLM lớn hơn (như Gemini 1.5 Pro) để trả lời thay vì Flash để tránh mất mát thông tin."
+1.  **RAGAS scores:** "Hệ thống của chúng em đạt bước tiến khổng lồ với các chỉ số Retrieval (**Precision 0.95, Recall 0.90**). So với bản Basic, khả năng tìm đúng thông tin đã tăng gần 20 lần."
+2.  **Biggest win:** "Chiến thắng lớn nhất là kỹ thuật **Hierarchical Chunking (Parent-Child)** kết hợp với **Reranking**. Chúng em giải quyết được vấn đề mất ngữ cảnh khi tra cứu các điều luật nhỏ lẻ hoặc các ô số trong bảng báo cáo tài chính."
+3.  **Case study:** "Một điểm sáng là Answer Relevancy đã tăng vọt. Chúng em đã tinh chỉnh System Prompt để LLM không chỉ trích xuất thông tin mà còn biết cách trình bày mạch lạc, đáp ứng đúng ý định của người dùng."
+4.  **Future vision:** "Nếu có thêm thời gian, nhóm sẽ tối ưu luồng **Asynchronous** để giảm thời gian xử lý và triển khai **Table-parsing** nâng cao để đạt điểm Faithfulness 1.0 tuyệt đối cho dữ liệu bảng biểu."

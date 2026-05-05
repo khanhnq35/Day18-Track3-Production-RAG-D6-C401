@@ -72,7 +72,8 @@ class BM25Search:
 class DenseSearch:
     def __init__(self):
         from qdrant_client import QdrantClient
-        self.client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+        # Use local storage instead of server to avoid connection issues
+        self.client = QdrantClient(path="./qdrant_db")
         self._encoder = None
         self._collection: str = COLLECTION_NAME
 

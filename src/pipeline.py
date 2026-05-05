@@ -42,6 +42,7 @@ def build_pipeline():
     # Tạo lookup table cho parent (chứa text đã được làm giàu)
     parent_lookup = {}
     parent_context_map = {} # parent_id -> context_prepend
+    parent_questions_map = {} # parent_id -> questions_str
     
     for e in enriched_parents:
         pid = e.auto_metadata.get("parent_id")
@@ -51,20 +52,33 @@ def build_pipeline():
         match = re.search(r"\[Ngữ cảnh: (.*?)\]", e.enriched_text)
         if match:
             parent_context_map[pid] = match.group(1)
+        # Lưu câu hỏi giả định để nhúng vào Search Index (HyQA)
+        if e.hypothesis_questions:
+            parent_questions_map[pid] = " ".join(e.hypothesis_questions)
 
     # Cập nhật child chunks: thừa hưởng context từ parent
     final_chunks = []
+    import re
     for child in all_children:
         pid = child.parent_id
-        text = child.text
+        # Đảm bảo lấy text sạch 100% từ chunk gốc, loại bỏ prepend context nếu có
+        clean_text = re.sub(r"\[Ngữ cảnh: .*?\]\n\n", "", child.text).strip()
+        metadata = {**child.metadata, "parent_id": pid}
+        
         if pid in parent_context_map:
-            text = f"[Ngữ cảnh: {parent_context_map[pid]}]\n\n{text}"
+            # Lưu ngữ cảnh vào metadata để dành sau này dùng nếu cần
+            metadata["parent_context"] = parent_context_map[pid]
+        
+        # --- Kỹ thuật HyQA cho Search Index ---
+        if pid in parent_questions_map and parent_questions_map[pid]:
+            # Nhúng câu hỏi giả định vào text để Search Index cực mạnh
+            clean_text = f"{clean_text}\n\n[Gợi ý tìm kiếm]: {parent_questions_map[pid]}"
         
         final_chunks.append({
-            "text": text,
-            "metadata": {**child.metadata, "parent_id": pid}
+            "text": clean_text,
+            "metadata": metadata
         })
-    print(f"  Enrichment done (Selective + Combined). Processed {len(all_parents)} LLM calls.")
+    print(f"  Enrichment done (Selective + HyQA). Processed {len(all_parents)} LLM calls.")
 
     # Step 3: Index (M2)
     print("\n[3/4] Indexing (BM25 + Dense)...")
@@ -85,18 +99,28 @@ def run_query(query: str, search: HybridSearch, reranker: CrossEncoderReranker,
     docs = [{"text": r.text, "score": r.score, "metadata": r.metadata} for r in results]
     reranked = reranker.rerank(query, docs, top_k=RERANK_TOP_K)
     source_results = reranked if reranked else results[:3]
-    contexts = []
+    contexts = [] # Bản gốc cho Ragas
+    clean_contexts = [] # Bản sạch cho Generator
     seen_parent_ids = set()
+    import re
     
     for result in source_results:
         parent_id = result.metadata.get("parent_id")
         if parent_id and parent_id in parent_lookup:
             if parent_id in seen_parent_ids:
                 continue
-            contexts.append(parent_lookup[parent_id])
+            raw_ctx = parent_lookup[parent_id]
+            contexts.append(raw_ctx)
+            
+            # Lọc sạch HyQA và bối cảnh để Generator không bị nhiễu
+            clean_ctx = re.sub(r"\[Gợi ý tìm kiếm\]:.*", "", raw_ctx, flags=re.DOTALL).strip()
+            clean_ctx = re.sub(r"\[Ngữ cảnh: .*?\]\n\n", "", clean_ctx).strip()
+            clean_contexts.append(clean_ctx)
+            
             seen_parent_ids.add(parent_id)
         else:
             contexts.append(result.text)
+            clean_contexts.append(result.text)
 
     # TODO (nhóm): Replace with LLM generation for better scores
     # --- LOGGING DIAGNOSTICS ---
@@ -123,21 +147,22 @@ def run_query(query: str, search: HybridSearch, reranker: CrossEncoderReranker,
     # --- LLM Generation ---
     from src.utils import call_llm
     
-    context_str = "\n\n".join(contexts)
-    sys_prompt = (
-        "Bạn là trợ lý RAG trả lời câu hỏi tiếng Việt dựa trên tài liệu được cung cấp. "
-        "Chỉ sử dụng thông tin xuất hiện trực tiếp trong phần Context. "
-        "Không sử dụng kiến thức bên ngoài, không suy luận ngoài context, không bịa thêm chi tiết. "
-        "Trả lời trực tiếp, ngắn gọn, đúng trọng tâm câu hỏi. "
-        "Nếu context không đủ thông tin để trả lời chắc chắn, chỉ trả lời đúng câu sau: "
-        "'Không tìm thấy thông tin trong tài liệu.'"
-    )
-    user_prompt = f"Context:\n{context_str}\n\nCâu hỏi: {query}"
+    context_str = "\n---\n".join(clean_contexts)
+    sys_prompt = """Bạn là chuyên gia phân tích dữ liệu và pháp lý chuyên nghiệp.
+Nhiệm vụ: Trả lời câu hỏi dựa TRỰC TIẾP vào bối cảnh được cung cấp.
+
+Yêu cầu trình bày:
+- Trả lời đầy đủ, rõ ràng bằng câu văn hoàn chỉnh.
+- Nếu là con số tài chính, hãy trích dẫn kèm đơn vị tính.
+- Nếu là định nghĩa pháp lý, hãy trích dẫn chính xác và đầy đủ các điều kiện.
+- Tuyệt đối không bịa đặt thông tin. Nếu không có trong bối cảnh, hãy trả lời: 'Xin lỗi, tài liệu được cung cấp không chứa thông tin để trả lời câu hỏi này.'
+"""
+    user_prompt = f"BỐI CẢNH:\n{context_str}\n\nCÂU HỎI: {query}"
     
     answer = call_llm(sys_prompt, user_prompt)
     
     if not answer:
-        answer = contexts[0] if contexts else "Không tìm thấy thông tin trong tài liệu."
+        answer = clean_contexts[0] if clean_contexts else "Không tìm thấy thông tin trong tài liệu."
 
     with open(trace_file, "a", encoding="utf-8") as f:
         f.write(f"\nSTEP 3: GENERATED ANSWER\n")
@@ -162,7 +187,7 @@ def evaluate_pipeline(search: HybridSearch, reranker: CrossEncoderReranker,
         print(f"  [{i+1}/{len(test_set)}] Xử lý xong: {item['question'][:50]}...")
         return item["question"], ans, ctx, item["ground_truth"]
 
-    with ThreadPoolExecutor(max_workers=10) as executor:
+    with ThreadPoolExecutor(max_workers=20) as executor:
         results_parallel = list(executor.map(process_item, enumerate(test_set)))
 
     for q, a, c, gt in results_parallel:

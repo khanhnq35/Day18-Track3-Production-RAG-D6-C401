@@ -14,8 +14,8 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "")
 GCP_LOCATION = os.getenv("GCP_LOCATION", "us-central1")
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "google")  # "google" or "openai"
-DEFAULT_LLM = os.getenv("DEFAULT_LLM", "gemini-2.5-flash")
-FALLBACK_LLM = os.getenv("FALLBACK_LLM", "gemini-2.5-flash-lite")
+DEFAULT_LLM = os.getenv("DEFAULT_LLM", "gemini-2.5-pro")
+FALLBACK_LLM = os.getenv("FALLBACK_LLM", "gemini-2.5-flash")
 JUDGE_LLM = os.getenv("JUDGE_LLM", "gemini-2.5-pro")
 
 # --- Embedding Provider ---
@@ -39,10 +39,10 @@ HIERARCHICAL_CHILD_SIZE = 256
 SEMANTIC_THRESHOLD = 0.85
 
 # --- Search ---
-BM25_TOP_K = 20
-DENSE_TOP_K = 20
-HYBRID_TOP_K = 20
-RERANK_TOP_K = 5
+BM25_TOP_K = 50
+DENSE_TOP_K = 50
+HYBRID_TOP_K = 50
+RERANK_TOP_K = 10
 
 # --- Paths ---
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")

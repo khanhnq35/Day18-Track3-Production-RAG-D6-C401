@@ -131,15 +131,17 @@ def enrich_chunk_combined(text: str, document_title: str = "") -> dict:
 def enrich_chunks(chunks: list[dict],
                   methods: list[str] | None = None) -> list[EnrichedChunk]:
     """
-    Chạy enrichment pipeline. Đã tối ưu hóa gộp call LLM.
+    Chạy enrichment pipeline. Song song hóa call LLM.
     """
+    from concurrent.futures import ThreadPoolExecutor
+    
     if methods is None:
         methods = ["contextual", "hyqa", "metadata"]
     
-    enriched = []
-    print(f"Enriching {len(chunks)} chunks using Optimized Combined Strategy...")
+    print(f"Enriching {len(chunks)} chunks using Optimized Combined Strategy (Parallel)...")
     
-    for i, c in enumerate(chunks):
+    def process_single_chunk(chunk_data: tuple[int, dict]) -> EnrichedChunk:
+        i, c = chunk_data
         raw_text = c.get("text", "")
         old_metadata = c.get("metadata", {})
         doc_title = old_metadata.get("source", "")
@@ -157,18 +159,20 @@ def enrich_chunks(chunks: list[dict],
         if context:
             enriched_text = f"[Ngữ cảnh: {context}]\n\n{raw_text}"
         
-        # Nếu có HyQA, ta có thể chọn prepend vào text để tăng khả năng search
         if questions:
             enriched_text += "\n\n[Câu hỏi giả định]: " + " ".join(questions)
 
-        enriched.append(EnrichedChunk(
+        return EnrichedChunk(
             original_text=raw_text,
             enriched_text=enriched_text,
             summary=summary,
             hypothesis_questions=questions,
             auto_metadata={**old_metadata, **auto_meta},
-            method="combined_optimized"
-        ))
+            method="combined_optimized_parallel"
+        )
+
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        enriched = list(executor.map(process_single_chunk, enumerate(chunks)))
         
     return enriched
 

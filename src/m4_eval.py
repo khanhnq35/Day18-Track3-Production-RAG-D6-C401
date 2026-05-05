@@ -104,8 +104,14 @@ def evaluate_ragas(questions: list[str], answers: list[str],
     ragas_llm = VertexRagasLLM()
     ragas_emb = VertexRagasEmbeddings()
 
+    # Clear debug log at the start of each evaluation session to avoid huge files
+    debug_path = os.path.join("logs", "ragas_debug.txt")
+    os.makedirs("logs", exist_ok=True)
+    with open(debug_path, "w", encoding="utf-8") as f:
+        f.write(f"--- RAGAS EVALUATION START: {len(questions)} questions ---\n")
+
     from ragas.run_config import RunConfig
-    run_config = RunConfig(max_workers=4, timeout=120)
+    run_config = RunConfig(max_workers=20, timeout=120)
 
     result = evaluate(dataset, metrics=metrics, llm=ragas_llm, embeddings=ragas_emb, run_config=run_config, raise_exceptions=False)
 

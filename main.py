@@ -50,17 +50,29 @@ def main():
         with open(prod_path, encoding="utf-8") as f:
             prod = json.load(f)
 
-        print(f"\n{'Metric':<25} {'Basic':>8} {'Production':>12} {'Δ':>8}")
-        print("-" * 55)
+        output_lines = [f"\n{'Metric':<25} {'Basic':>8} {'Production':>12} {'Δ':>8}", "-" * 55]
         for m in ["faithfulness", "answer_relevancy", "context_precision", "context_recall"]:
             n = naive.get("aggregate", {}).get(m, 0)
             p = prod.get("aggregate", {}).get(m, 0)
             d = p - n
             status = "✓" if p >= 0.75 else " "
-            print(f"{status} {m:<23} {n:>8.4f} {p:>12.4f} {d:>+8.4f}")
+            output_lines.append(f"{status} {m:<23} {n:>8.4f} {p:>12.4f} {d:>+8.4f}")
+            
+        final_str = "\n".join(output_lines)
+        print(final_str)
+        
+        # Save to final_log.txt
+        os.makedirs("logs", exist_ok=True)
+        with open("logs/final_log.txt", "w", encoding="utf-8") as lf:
+            lf.write("============================================================\n")
+            lf.write("FINAL COMPARISON REPORT\n")
+            lf.write("============================================================\n")
+            lf.write(final_str + "\n")
 
     elapsed = time.time() - start
     print(f"\n⏱️  Total time: {elapsed:.1f}s")
+    with open("logs/final_log.txt", "a", encoding="utf-8") as lf:
+        lf.write(f"\nTotal time: {elapsed:.1f}s\n")
     print("\n📋 Next steps:")
     print("  1. Điền analysis/failure_analysis.md")
     print("  2. Điền analysis/group_report.md")
